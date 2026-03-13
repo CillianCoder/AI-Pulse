@@ -9,9 +9,7 @@ const PAGE_TOKEN = process.env.PAGE_TOKEN;
 const NEWS_KEY = process.env.NEWS_KEY; // NewsAPI key
 // -----------------------------
 
-const KEYWORDS = ["AI", "artificial intelligence", "machine learning", "technology", "Apple", "Samsung", "gadgets"];
-const NEGATIVE_KEYWORDS = ["health", "politics", "sports", "entertainment", "covid", "vaccine", "trump", "election"];
-const SOURCES = ["techcrunch.com","theverge.com","wired.com","thenextweb.com","engadget.com"];
+const KEYWORDS = ["AI", "artificial intelligence", "machine learning", "technology", "Apple", "Samsung", "gadgets", "laptop", "mobile"];
 const HASHTAGS = "#AI #TechNews #Gadgets #Innovation #FutureTech";
 
 // ---------- Utilities ----------
@@ -26,12 +24,9 @@ function savePosted(url) {
   fs.writeFileSync("posted.json", JSON.stringify(posted, null, 2));
 }
 
-// Check article relevance
 function isRelevant(article) {
   const text = (article.title + " " + (article.description || "")).toLowerCase();
-  const hasKeyword = KEYWORDS.some(k => new RegExp(`\\b${k.toLowerCase()}\\b`).test(text));
-  const hasNegative = NEGATIVE_KEYWORDS.some(k => new RegExp(`\\b${k.toLowerCase()}\\b`).test(text));
-  return hasKeyword && !hasNegative;
+  return KEYWORDS.some(k => text.includes(k.toLowerCase()));
 }
 
 // Create attention hook
@@ -45,7 +40,7 @@ function generateHook() {
   return hooks[Math.floor(Math.random() * hooks.length)];
 }
 
-// Extract quick facts (number + unit/keyword)
+// Extract meaningful quick facts (number + unit/keyword)
 function extractQuickFacts(text) {
   const regex = /(\d+(\.\d+)?\s?(GB|GHz|MP|inch|%|mAh|nm|TB|fps|MPx)?)/gi;
   const matches = text.match(regex);
@@ -53,12 +48,23 @@ function extractQuickFacts(text) {
   return `Quick fact: ${matches.join(", ")}\n\n`;
 }
 
-// Generate human-friendly summary
+// Generate human-friendly summary (richer content)
 function rewriteNews(article) {
   const hook = generateHook();
   const baseSummary = article.description || "";
-  const enhancedSummary = `${article.title}\n\n${baseSummary}${baseSummary && !baseSummary.endsWith(".") ? "." : ""}`;
+
+  // Add extra context if description is short
+  let extraContext = "";
+  if (baseSummary.length < 150) {
+    extraContext = "In this update, we break down the key points and what it means for tech enthusiasts.";
+  }
+
+  const enhancedSummary = `${article.title}\n\n${baseSummary} ${
+    baseSummary && !baseSummary.endsWith(".") ? "." : ""
+  } ${extraContext}`;
+
   const quickFacts = extractQuickFacts(article.title + " " + baseSummary);
+
   return `${hook}\n\n${enhancedSummary}\n\n${quickFacts}Source: ${article.url}\n\n${HASHTAGS}`;
 }
 
@@ -81,7 +87,7 @@ async function uploadPhoto(filepath, caption) {
   return res.data.id;
 }
 
-// Post to FB
+// Post to Facebook
 async function postToFacebook(article) {
   const message = rewriteNews(article);
   let media_id;
@@ -116,9 +122,8 @@ async function postNews() {
         q: KEYWORDS.join(" OR "),
         language: "en",
         sortBy: "publishedAt",
-        pageSize: 10,
-        apiKey: NEWS_KEY,
-        domains: SOURCES.join(",") // restrict to tech sources
+        pageSize: 5,
+        apiKey: NEWS_KEY
       }
     });
 
