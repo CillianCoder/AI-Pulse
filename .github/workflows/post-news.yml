@@ -21,14 +21,6 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-        
-      # --- DEBUG STEP START ---
-      - name: Debug NewsAPI Key
-        run: echo "PAGE_TOKEN=${PAGE_TOKEN}"
-        env:
-          NEWS_KEY: ${{ secrets.PAGE_TOKEN }}
-      # --- DEBUG STEP END ---
-
       - name: Run Bot
         run: node bot.js
         env:
