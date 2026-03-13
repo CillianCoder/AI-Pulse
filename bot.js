@@ -9,7 +9,12 @@ const PAGE_TOKEN = process.env.PAGE_TOKEN;
 const NEWS_KEY = process.env.NEWS_KEY; // NewsAPI key
 // -----------------------------
 
-const KEYWORDS = ["AI", "artificial intelligence", "machine learning", "technology", "Apple", "Samsung", "gadgets", "laptop", "mobile"];
+const KEYWORDS = [
+  "AI", "artificial intelligence", "machine learning",
+  "technology", "Apple", "Samsung", "gadgets",
+  "laptop", "mobile", "innovation", "VR", "AR"
+];
+const BLOCKED_KEYWORDS = ["politics", "health", "NFL", "Trump", "soccer", "football"];
 const HASHTAGS = "#AI #TechNews #Gadgets #Innovation #FutureTech";
 
 // ---------- Utilities ----------
@@ -26,7 +31,8 @@ function savePosted(url) {
 
 function isRelevant(article) {
   const text = (article.title + " " + (article.description || "")).toLowerCase();
-  return KEYWORDS.some(k => text.includes(k.toLowerCase()));
+  return KEYWORDS.some(k => text.includes(k.toLowerCase())) &&
+         !BLOCKED_KEYWORDS.some(b => text.includes(b.toLowerCase()));
 }
 
 // Create attention hook
@@ -40,7 +46,7 @@ function generateHook() {
   return hooks[Math.floor(Math.random() * hooks.length)];
 }
 
-// Extract meaningful quick facts (number + unit/keyword)
+// Extract meaningful quick facts (numbers + unit/keyword)
 function extractQuickFacts(text) {
   const regex = /(\d+(\.\d+)?\s?(GB|GHz|MP|inch|%|mAh|nm|TB|fps|MPx)?)/gi;
   const matches = text.match(regex);
@@ -59,7 +65,7 @@ function rewriteNews(article) {
     extraContext = "In this update, we break down the key points and what it means for tech enthusiasts.";
   }
 
-  const enhancedSummary = `${article.title}\n\n${baseSummary} ${
+  const enhancedSummary = `${article.title}\n\n${baseSummary}${
     baseSummary && !baseSummary.endsWith(".") ? "." : ""
   } ${extraContext}`;
 
@@ -78,7 +84,7 @@ async function downloadImage(url, filepath) {
 async function uploadPhoto(filepath, caption) {
   const form = new FormData();
   form.append("access_token", PAGE_TOKEN);
-  form.append("published", "false");
+  form.append("published", "false"); // We will publish post separately
   form.append("caption", caption);
   form.append("source", fs.createReadStream(filepath));
   const res = await axios.post(`https://graph.facebook.com/${PAGE_ID}/photos`, form, {
