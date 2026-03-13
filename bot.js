@@ -4,9 +4,9 @@ const fs = require("fs");
 const FormData = require("form-data");
 
 // ---------- CONFIG ----------
-const PAGE_ID = "109405698209031"; // Your Facebook Page ID
-const PAGE_TOKEN = "EAAaUrWRttLgBQ37cML0QLznMeM5N23lggZB3bekf4GAfym3gSt4ZBJ9amO2qJMEB18j2o15ZARQNelmxis0WcKQUFQSJnhz3It3XGqwZBJty15th0vCUjMfDq5WBawPerA768w7pTFE9zjAHwuKJIuIVaOHQq0kDStwwaXeEIbcRPmJZCOX87jrm7x5ivcz4P9If0J10ZCZAViAvnxdCOEZD"; // Page access token
-const NEWS_KEY = "aa6f0414aa214fb28894bf8504911f80"; // NewsAPI key
+const PAGE_ID = process.env.PAGE_ID;
+const PAGE_TOKEN = process.env.PAGE_TOKEN;
+const NEWS_KEY = process.env.NEWS_KEY; // NewsAPI key
 // -----------------------------
 
 const KEYWORDS = ["AI", "artificial intelligence", "machine learning", "technology", "Apple", "Samsung", "gadgets"];
