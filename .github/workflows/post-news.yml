@@ -24,9 +24,9 @@ jobs:
         
       # --- DEBUG STEP START ---
       - name: Debug NewsAPI Key
-        run: echo "NEWS_KEY=${NEWS_KEY}"
+        run: echo "PAGE_TOKEN=${PAGE_TOKEN}"
         env:
-          NEWS_KEY: ${{ secrets.NEWS_KEY }}
+          NEWS_KEY: ${{ secrets.PAGE_TOKEN }}
       # --- DEBUG STEP END ---
 
       - name: Run Bot
