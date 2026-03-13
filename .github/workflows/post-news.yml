@@ -1,0 +1,29 @@
+name: AI News Bot
+
+on:
+  schedule:
+    - cron: '0 12,16,20 * * *' # UTC times, 3 posts/day
+  workflow_dispatch: # allows manual trigger
+
+jobs:
+  post-news:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Bot
+        run: node bot.js
+        env:
+          PAGE_ID: ${{ secrets.PAGE_ID }}
+          PAGE_TOKEN: ${{ secrets.PAGE_TOKEN }}
+          NEWS_KEY: ${{ secrets.NEWS_KEY }}
