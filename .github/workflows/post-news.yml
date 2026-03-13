@@ -1,17 +1,16 @@
-# .github/workflows/ai-news-bot.yml
 name: AI News Bot
 
 on:
   schedule:
-    - cron: '0 12,17,22 * * *' # UTC times ~ 8AM, 1PM, 6PM ET
-  workflow_dispatch: # Allows manual trigger
+    - cron: '0 12,17,22 * * *' # 3 posts/day at 12PM, 5PM, 10PM UTC
+  workflow_dispatch: # allows manual trigger
 
 jobs:
   post-news:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repo
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Setup Node.js
@@ -22,7 +21,7 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Run AI News Bot
+      - name: Run Bot
         run: node bot.js
         env:
           PAGE_ID: ${{ secrets.PAGE_ID }}
