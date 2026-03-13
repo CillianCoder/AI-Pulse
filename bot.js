@@ -10,6 +10,8 @@ const NEWS_KEY = process.env.NEWS_KEY; // NewsAPI key
 // -----------------------------
 
 const KEYWORDS = ["AI", "artificial intelligence", "machine learning", "technology", "Apple", "Samsung", "gadgets"];
+const NEGATIVE_KEYWORDS = ["health", "politics", "sports", "entertainment", "covid", "vaccine", "trump", "election"];
+const SOURCES = ["techcrunch.com","theverge.com","wired.com","thenextweb.com","engadget.com"];
 const HASHTAGS = "#AI #TechNews #Gadgets #Innovation #FutureTech";
 
 // ---------- Utilities ----------
@@ -24,9 +26,12 @@ function savePosted(url) {
   fs.writeFileSync("posted.json", JSON.stringify(posted, null, 2));
 }
 
+// Check article relevance
 function isRelevant(article) {
   const text = (article.title + " " + (article.description || "")).toLowerCase();
-  return KEYWORDS.some(k => text.includes(k.toLowerCase()));
+  const hasKeyword = KEYWORDS.some(k => new RegExp(`\\b${k.toLowerCase()}\\b`).test(text));
+  const hasNegative = NEGATIVE_KEYWORDS.some(k => new RegExp(`\\b${k.toLowerCase()}\\b`).test(text));
+  return hasKeyword && !hasNegative;
 }
 
 // Create attention hook
@@ -40,7 +45,7 @@ function generateHook() {
   return hooks[Math.floor(Math.random() * hooks.length)];
 }
 
-// Extract meaningful quick facts (number + unit/keyword)
+// Extract quick facts (number + unit/keyword)
 function extractQuickFacts(text) {
   const regex = /(\d+(\.\d+)?\s?(GB|GHz|MP|inch|%|mAh|nm|TB|fps|MPx)?)/gi;
   const matches = text.match(regex);
@@ -52,9 +57,7 @@ function extractQuickFacts(text) {
 function rewriteNews(article) {
   const hook = generateHook();
   const baseSummary = article.description || "";
-  const enhancedSummary = `${article.title}\n\n${baseSummary} ${
-    baseSummary && !baseSummary.endsWith(".") ? "." : ""
-  }`;
+  const enhancedSummary = `${article.title}\n\n${baseSummary}${baseSummary && !baseSummary.endsWith(".") ? "." : ""}`;
   const quickFacts = extractQuickFacts(article.title + " " + baseSummary);
   return `${hook}\n\n${enhancedSummary}\n\n${quickFacts}Source: ${article.url}\n\n${HASHTAGS}`;
 }
@@ -113,8 +116,9 @@ async function postNews() {
         q: KEYWORDS.join(" OR "),
         language: "en",
         sortBy: "publishedAt",
-        pageSize: 5,
-        apiKey: NEWS_KEY
+        pageSize: 10,
+        apiKey: NEWS_KEY,
+        domains: SOURCES.join(",") // restrict to tech sources
       }
     });
 
