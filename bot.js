@@ -248,7 +248,7 @@ async function postNews(){
           q: KEYWORDS.join(" OR "),
           language:"en",
           sortBy:"publishedAt",
-          pageSize:5,
+          pageSize:20,
           apiKey:NEWS_KEY
         }
       }
