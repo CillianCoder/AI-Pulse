@@ -6,8 +6,7 @@ const FormData = require("form-data");
 // ---------- CONFIG ----------
 const PAGE_ID = process.env.PAGE_ID;
 const PAGE_TOKEN = process.env.PAGE_TOKEN;
-const NEWS_KEY = process.env.NEWS_KEY; // NewsAPI key
-// -----------------------------
+const NEWS_KEY = process.env.NEWS_KEY;
 
 // Keywords
 const KEYWORDS = [
@@ -27,25 +26,24 @@ const KEYWORDS = [
 ];
 
 const VIRAL_KEYWORDS = ["AI breakthrough","viral","trending","major update","explosive","shocking","game changer"];
-
 const COMPANY_KEYWORDS = ["Apple","Samsung","Google","Microsoft","Meta","Tesla","Nvidia","Intel","AMD","OpenAI"];
-
 const BLOCKED_KEYWORDS = [
   "politics","election","government","senate","president",
   "war","military conflict","terrorist","attack",
   "murder","killed","crime","shooting",
-  "socc","football","NFL","NBA","cricket","sports",
+  "soccer","football","NFL","NBA","cricket","sports",
   "celebrity","movie","music","entertainment",
   "health","medicine","covid","hospital",
   "weather","earthquake","storm","flood"
 ];
-
 const TRUSTED_SOURCES = [
   "techcrunch","the-verge","wired","ars-technica","mit-technology-review",
   "engadget","venturebeat","gizmodo"
 ];
-
 const HASHTAGS = "#AI #TechNews #Gadgets #Innovation #FutureTech";
+
+// Trending news
+const TRENDING_KEYWORDS = ["breaking news","viral","trending","world news","major event"];
 
 // ---------- Utilities ----------
 function getPosted() {
@@ -76,9 +74,13 @@ function isRelevant(article) {
   return keywordMatch && !blockedMatch && trustedSource;
 }
 
-// ---------- Hook & Engagement ----------
+function detectCompany(article) {
+  const text = (article.title + " " + (article.description || "")).toLowerCase();
+  return COMPANY_KEYWORDS.find(c => text.includes(c.toLowerCase()));
+}
+
+// ---------- Hooks & Engagement ----------
 function generateHook(articleTitle) {
-  // Can use title or viral keywords
   const hooks = [
     `🚀 ${articleTitle}`,
     `⚡ Breaking Tech News: ${articleTitle}`,
@@ -116,22 +118,12 @@ function viralScore(article) {
   return score;
 }
 
-// ---------- Company detection ----------
-function detectCompany(article) {
-  const text = (article.title + " " + (article.description || "")).toLowerCase();
-  return COMPANY_KEYWORDS.find(c => text.includes(c.toLowerCase()));
-}
-
 // ---------- Rewrite news ----------
 function rewriteNews(article) {
-  const company = detectCompany(article);
   const hook = generateHook(article.title);
   const engagement = generateEngagementLine();
   const baseSummary = article.description || "";
-
-  let extraContext = "";
-  if (baseSummary.length < 150) extraContext = "In this update, we break down the key points and what it means for tech enthusiasts.";
-
+  const extraContext = baseSummary.length < 150 ? "In this update, we break down the key points and what it means for tech enthusiasts." : "";
   const quickFacts = extractQuickFacts(article.title + " " + baseSummary);
 
   return `${hook}
@@ -160,9 +152,7 @@ async function uploadPhoto(filepath, caption) {
   form.append("published", "false");
   form.append("caption", caption);
   form.append("source", fs.createReadStream(filepath));
-  const res = await axios.post(`https://graph.facebook.com/${PAGE_ID}/photos`, form, {
-    headers: form.getHeaders()
-  });
+  const res = await axios.post(`https://graph.facebook.com/${PAGE_ID}/photos`, form, { headers: form.getHeaders() });
   return res.data.id;
 }
 
@@ -194,57 +184,54 @@ async function postToFacebook(article) {
   }
 }
 
+// ---------- Fetch Articles ----------
+async function fetchArticles(keywords) {
+  const queryChunks = [];
+  let currentQuery = "";
+  for (const k of keywords) {
+    if ((currentQuery + " OR " + k).length > 500) {
+      queryChunks.push(currentQuery);
+      currentQuery = k;
+    } else {
+      currentQuery += (currentQuery ? " OR " : "") + k;
+    }
+  }
+  if (currentQuery) queryChunks.push(currentQuery);
+
+  let articles = [];
+  for (const chunk of queryChunks) {
+    const res = await axios.get("https://newsapi.org/v2/everything", {
+      params: { q: chunk, language: "en", sortBy: "publishedAt", pageSize: 20, apiKey: NEWS_KEY }
+    });
+    articles = articles.concat(res.data.articles.filter(a => a.url));
+  }
+  return articles;
+}
+
 // ---------- Main function ----------
 async function postNews() {
-  console.log("Fetching AI/Tech news...");
+  console.log("Fetching news...");
   try {
-    const queryChunks = [];
-    let currentQuery = "";
-    for (const k of KEYWORDS) {
-      if ((currentQuery + " OR " + k).length > 500) {
-        queryChunks.push(currentQuery);
-        currentQuery = k;
-      } else {
-        currentQuery += (currentQuery ? " OR " : "") + k;
-      }
-    }
-    if (currentQuery) queryChunks.push(currentQuery);
-
-    let articles = [];
-    for (const chunk of queryChunks) {
-      const res = await axios.get("https://newsapi.org/v2/everything", {
-        params: { q: chunk, language: "en", sortBy: "publishedAt", pageSize: 20, apiKey: NEWS_KEY }
-      });
-      articles = articles.concat(res.data.articles.filter(a => a.url && isRelevant(a)));
-    }
-
-    // Remove articles from same last company
+    let articles = await fetchArticles(KEYWORDS);
     const lastCompany = getLastCompany();
-    articles = articles.filter(a => detectCompany(a) !== lastCompany);
-
-    // Sort by viral score
+    articles = articles.filter(a => detectCompany(a) !== lastCompany && isRelevant(a));
     articles.sort((a, b) => viralScore(b) - viralScore(a));
 
     const posted = getPosted();
-    const article = articles.find(a => !posted.includes(a.url));
+    let article = articles.find(a => !posted.includes(a.url));
 
+    // If no main article found, try trending/fallback
     if (!article) {
-      console.log("No new relevant articles. Trying fallback keywords...");
-      // Fallback search
-      for (const fb of ["tech news", "AI", "innovation"]) {
-        const res = await axios.get("https://newsapi.org/v2/everything", {
-          params: { q: fb, language: "en", sortBy: "publishedAt", pageSize: 10, apiKey: NEWS_KEY }
-        });
-        const fallbackArticles = res.data.articles.filter(a => a.url && isRelevant(a) && !posted.includes(a.url));
-        if (fallbackArticles.length > 0) {
-          await postToFacebook(fallbackArticles[0]);
-          return;
-        }
-      }
-      return;
+      console.log("No new relevant articles. Trying trending/fallback keywords...");
+      const fallbackArticles = await fetchArticles(TRENDING_KEYWORDS);
+      article = fallbackArticles.find(a => !posted.includes(a.url));
     }
 
-    await postToFacebook(article);
+    if (article) {
+      await postToFacebook(article);
+    } else {
+      console.log("No suitable articles found after fallback search.");
+    }
 
   } catch (err) {
     console.log("Error fetching or posting news:", err.response?.data || err.message);
