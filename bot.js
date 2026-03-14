@@ -6,10 +6,9 @@ const FormData = require("form-data");
 // ---------- CONFIG ----------
 const PAGE_ID = process.env.PAGE_ID;
 const PAGE_TOKEN = process.env.PAGE_TOKEN;
-const NEWS_KEY = process.env.NEWS_KEY; // NewsAPI key
-// -----------------------------
+const NEWS_KEY = process.env.NEWS_KEY;
 
-// Keywords
+// ---------- Keywords ----------
 const KEYWORDS = [
   "AI","artificial intelligence","machine learning","deep learning",
   "technology","tech",
@@ -47,15 +46,18 @@ function getPosted() {
   if (!fs.existsSync("posted.json")) fs.writeFileSync("posted.json","[]");
   return JSON.parse(fs.readFileSync("posted.json"));
 }
+
 function savePosted(url) {
   const posted = getPosted();
   posted.push(url);
   fs.writeFileSync("posted.json", JSON.stringify(posted,null,2));
 }
+
 function getLastCompany() {
   if (!fs.existsSync("last_company.json")) fs.writeFileSync("last_company.json", JSON.stringify({company:""}));
   return JSON.parse(fs.readFileSync("last_company.json")).company;
 }
+
 function saveLastCompany(company) {
   fs.writeFileSync("last_company.json", JSON.stringify({company}));
 }
@@ -83,7 +85,7 @@ function detectCompany(article) {
   return COMPANY_KEYWORDS.find(c=>text.includes(c.toLowerCase()));
 }
 
-// ---------- Hook & Engagement ----------
+// ---------- Dynamic Hook & Engagement ----------
 function generateHookDynamic(article) {
   const title = article.title || "";
   const company = detectCompany(article);
@@ -95,24 +97,18 @@ function generateHookDynamic(article) {
   return hook;
 }
 
-function generateEngagementLine(article) {
-  const text = (article.title + " " + (article.description || "")).trim();
-
-  if (/AI|machine learning|ChatGPT|OpenAI/i.test(text)) {
-    return "Do you think AI will change the world soon? 🤔";
-  }
-  if (/tech|innovation|startup/i.test(text)) {
-    return "Could this innovation shape the future? 🚀";
-  }
-  if (/Apple|Samsung|Google|Microsoft|Meta|Tesla/i.test(text)) {
-    const company = detectCompany(article) || "This company";
-    return `${company} just made a move — what’s your take? 📱💻`;
-  }
-  if (/VR|AR|mixed reality|robotics|automation/i.test(text)) {
-    return "Would you use this new technology? 🤖";
-  }
-
-  return "What are your thoughts on this update? 💡";
+function generateEngagementDynamic(article) {
+  const text = (article.title + " " + (article.description||"")).toLowerCase();
+  const questions = [
+    `What are your thoughts on this?`,
+    `How do you see this impacting the industry?`,
+    `Could this change the future of tech?`,
+    `Would you try this innovation?`,
+    `Do you think this is a breakthrough?`
+  ];
+  // Optional: increase weight if viral keywords appear
+  const viralCount = VIRAL_KEYWORDS.filter(k=>text.includes(k.toLowerCase())).length;
+  return questions[Math.min(viralCount, questions.length-1)];
 }
 
 // ---------- Quick Facts ----------
@@ -135,7 +131,7 @@ function generateHashtags(article){
 // ---------- Rewrite News ----------
 function rewriteNews(article){
   const hook=generateHookDynamic(article);
-  const engagement=generateEngagementLine(article);
+  const engagement=generateEngagementDynamic(article);
   const baseSummary=article.description||"";
   let extraContext="";
   if(baseSummary.length<150) extraContext="In this update, we break down the key points and what it means for tech enthusiasts.";
@@ -156,9 +152,17 @@ ${article.url}
 ${hashtags}`;
 }
 
+// ---------- Axios with timeout ----------
+const axiosWithTimeout = (url, params, timeout=10000) => {
+  return axios.get(url, {params, timeout}).catch(err=>{
+    console.log("Axios request failed or timed out:", err.message);
+    return { data: { articles: [] } };
+  });
+};
+
 // ---------- Image ----------
 async function downloadImage(url,filepath){
-  const res=await axios.get(url,{responseType:"arraybuffer"});
+  const res=await axiosWithTimeout(url,{responseType:"arraybuffer"});
   fs.writeFileSync(filepath,res.data);
 }
 async function uploadPhoto(filepath,caption){
@@ -218,8 +222,8 @@ async function postNews(){
 
     let articles=[];
     for(const chunk of queryChunks){
-      const res=await axios.get("https://newsapi.org/v2/everything",{
-        params:{q:chunk,language:"en",sortBy:"publishedAt",pageSize:20,apiKey:NEWS_KEY}
+      const res=await axiosWithTimeout("https://newsapi.org/v2/everything",{
+        q:chunk,language:"en",sortBy:"publishedAt",pageSize:20,apiKey:NEWS_KEY
       });
       articles=articles.concat(res.data.articles.filter(a=>a.url && isRelevant(a)));
     }
@@ -236,28 +240,35 @@ async function postNews(){
 
     if(!article){
       console.log("No new relevant articles. Trying fallback keywords...");
-      // fallback - related tech/AI only
-      for(const fb of ["tech news","AI","innovation"]){
-        const res=await axios.get("https://newsapi.org/v2/everything",{
-          params:{q:fb,language:"en",sortBy:"publishedAt",pageSize:10,apiKey:NEWS_KEY}
+      const fallbackKeywords = ["tech news","AI","innovation"];
+      let postedAny=false;
+
+      for(const fb of fallbackKeywords){
+        const res=await axiosWithTimeout("https://newsapi.org/v2/everything",{
+          q:fb,language:"en",sortBy:"publishedAt",pageSize:10,apiKey:NEWS_KEY
         });
         const fallbackArticles=res.data.articles.filter(a=>a.url && isRelevant(a) && !posted.includes(a.url));
         if(fallbackArticles.length>0){
           await postToFacebook(fallbackArticles[0]);
-          return;
+          postedAny=true;
+          break;
         }
       }
-      return;
-    }
 
-    await postToFacebook(article);
+      if(!postedAny){
+        console.log("No fallback articles found. Skipping this run.");
+        return;
+      }
+    } else {
+      await postToFacebook(article);
+    }
 
   }catch(err){
     console.log("Error fetching or posting news:",err.response?.data||err.message);
   }
 }
 
-// ---------- Schedule 3 posts/day ----------
+// ---------- Schedule ----------
 cron.schedule("0 12,17,22 * * *",()=>postNews());
 
 // Run immediately
