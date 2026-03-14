@@ -6,7 +6,8 @@ const FormData = require("form-data");
 // ---------- CONFIG ----------
 const PAGE_ID = process.env.PAGE_ID;
 const PAGE_TOKEN = process.env.PAGE_TOKEN;
-const NEWS_KEY = process.env.NEWS_KEY;
+const NEWS_KEY = process.env.NEWS_KEY; // NewsAPI key
+// -----------------------------
 
 // Keywords
 const KEYWORDS = [
@@ -31,7 +32,7 @@ const BLOCKED_KEYWORDS = [
   "politics","election","government","senate","president",
   "war","military conflict","terrorist","attack",
   "murder","killed","crime","shooting",
-  "soccer","football","NFL","NBA","cricket","sports",
+  "socc","football","NFL","NBA","cricket","sports",
   "celebrity","movie","music","entertainment",
   "health","medicine","covid","hospital",
   "weather","earthquake","storm","flood"
@@ -40,57 +41,59 @@ const TRUSTED_SOURCES = [
   "techcrunch","the-verge","wired","ars-technica","mit-technology-review",
   "engadget","venturebeat","gizmodo"
 ];
-const HASHTAGS = "#AI #TechNews #Gadgets #Innovation #FutureTech";
 
-// Trending news
-const TRENDING_KEYWORDS = ["breaking news","viral","trending","world news","major event"];
-
-// ---------- Utilities ----------
+// ---------- Files ----------
 function getPosted() {
-  if (!fs.existsSync("posted.json")) fs.writeFileSync("posted.json", "[]");
+  if (!fs.existsSync("posted.json")) fs.writeFileSync("posted.json","[]");
   return JSON.parse(fs.readFileSync("posted.json"));
 }
-
 function savePosted(url) {
   const posted = getPosted();
   posted.push(url);
-  fs.writeFileSync("posted.json", JSON.stringify(posted, null, 2));
+  fs.writeFileSync("posted.json", JSON.stringify(posted,null,2));
 }
-
 function getLastCompany() {
-  if (!fs.existsSync("last_company.json")) fs.writeFileSync("last_company.json", JSON.stringify({ company: "" }));
+  if (!fs.existsSync("last_company.json")) fs.writeFileSync("last_company.json", JSON.stringify({company:""}));
   return JSON.parse(fs.readFileSync("last_company.json")).company;
 }
-
 function saveLastCompany(company) {
-  fs.writeFileSync("last_company.json", JSON.stringify({ company }));
+  fs.writeFileSync("last_company.json", JSON.stringify({company}));
 }
 
+// ---------- Relevance ----------
 function isRelevant(article) {
-  const text = (article.title + " " + (article.description || "")).toLowerCase();
-  const keywordMatch = KEYWORDS.some(k => text.includes(k.toLowerCase()));
-  const blockedMatch = BLOCKED_KEYWORDS.some(b => text.includes(b.toLowerCase()));
+  const text = (article.title + " " + (article.description||"")).toLowerCase();
+  const keywordMatch = KEYWORDS.some(k=>text.includes(k.toLowerCase()));
+  const blockedMatch = BLOCKED_KEYWORDS.some(b=>text.includes(b.toLowerCase()));
   const trustedSource = TRUSTED_SOURCES.includes(article.source.id);
   return keywordMatch && !blockedMatch && trustedSource;
 }
 
+// ---------- Viral Score ----------
+function viralScore(article) {
+  const text = (article.title + " " + (article.description||"")).toLowerCase();
+  let score=0;
+  VIRAL_KEYWORDS.forEach(k=>{ if(text.includes(k.toLowerCase())) score+=10; });
+  return score;
+}
+
+// ---------- Company Detection ----------
 function detectCompany(article) {
-  const text = (article.title + " " + (article.description || "")).toLowerCase();
-  return COMPANY_KEYWORDS.find(c => text.includes(c.toLowerCase()));
+  const text = (article.title + " " + (article.description||"")).toLowerCase();
+  return COMPANY_KEYWORDS.find(c=>text.includes(c.toLowerCase()));
 }
 
-// ---------- Hooks & Engagement ----------
-function generateHook(articleTitle) {
-  const hooks = [
-    `🚀 ${articleTitle}`,
-    `⚡ Breaking Tech News: ${articleTitle}`,
-    `📰 In Tech Today: ${articleTitle}`,
-    `💡 New Development: ${articleTitle}`,
-    `📱 Gadget lovers, check this out: ${articleTitle}`
-  ];
-  return hooks[Math.floor(Math.random() * hooks.length)];
+// ---------- Hook & Engagement ----------
+function generateHookDynamic(article) {
+  const title = article.title || "";
+  const company = detectCompany(article);
+  const techTerm = KEYWORDS.find(k=>title.toLowerCase().includes(k.toLowerCase()));
+  let hook = "🚀 ";
+  if(company) hook += `${company} update: ${title}`;
+  else if(techTerm) hook += `${techTerm} news: ${title}`;
+  else hook += title;
+  return hook;
 }
-
 function generateEngagementLine() {
   const lines = [
     "What do you think about this development? 🤔",
@@ -99,147 +102,153 @@ function generateEngagementLine() {
     "Would you use this technology?",
     "Is this a big step forward for tech?"
   ];
-  return lines[Math.floor(Math.random() * lines.length)];
+  return lines[Math.floor(Math.random()*lines.length)];
 }
 
-// ---------- Quick facts ----------
+// ---------- Quick Facts ----------
 function extractQuickFacts(text) {
-  const regex = /(\d+(\.\d+)?\s?(GB|GHz|MP|inch|%|mAh|nm|TB|fps)?)/gi;
-  const matches = text.match(regex);
-  if (!matches) return "";
+  const regex=/(\d+(\.\d+)?\s?(GB|GHz|MP|inch|%|mAh|nm|TB|fps)?)/gi;
+  const matches=text.match(regex);
+  if(!matches) return "";
   return `Quick fact: ${matches.join(", ")}\n\n`;
 }
 
-// ---------- Viral Score ----------
-function viralScore(article) {
-  const text = (article.title + " " + (article.description || "")).toLowerCase();
-  let score = 0;
-  VIRAL_KEYWORDS.forEach(k => { if (text.includes(k.toLowerCase())) score += 10; });
-  return score;
+// ---------- Dynamic Hashtags ----------
+function generateHashtags(article){
+  const text=(article.title+" "+(article.description||"")).toLowerCase();
+  const tags=[];
+  KEYWORDS.forEach(k=>{ if(text.includes(k.toLowerCase())) tags.push(`#${k.replace(/\s+/g,""))}`); });
+  if(tags.length===0) return "#TechNews";
+  return tags.slice(0,10).join(" ");
 }
 
-// ---------- Rewrite news ----------
-function rewriteNews(article) {
-  const hook = generateHook(article.title);
-  const engagement = generateEngagementLine();
-  const baseSummary = article.description || "";
-  const extraContext = baseSummary.length < 150 ? "In this update, we break down the key points and what it means for tech enthusiasts." : "";
-  const quickFacts = extractQuickFacts(article.title + " " + baseSummary);
+// ---------- Rewrite News ----------
+function rewriteNews(article){
+  const hook=generateHookDynamic(article);
+  const engagement=generateEngagementLine();
+  const baseSummary=article.description||"";
+  let extraContext="";
+  if(baseSummary.length<150) extraContext="In this update, we break down the key points and what it means for tech enthusiasts.";
+  const quickFacts=extractQuickFacts(article.title+" "+baseSummary);
+  const hashtags=generateHashtags(article);
 
   return `${hook}
 
 ${article.title}
 
-${baseSummary}${baseSummary && !baseSummary.endsWith(".") ? "." : ""} ${extraContext}
+${baseSummary}${baseSummary&&!baseSummary.endsWith(".")?".":""} ${extraContext}
 
 ${quickFacts}${engagement}
 
 Source:
 ${article.url}
 
-${HASHTAGS}`;
+${hashtags}`;
 }
 
-// ---------- Image functions ----------
-async function downloadImage(url, filepath) {
-  const res = await axios.get(url, { responseType: "arraybuffer" });
-  fs.writeFileSync(filepath, res.data);
+// ---------- Image ----------
+async function downloadImage(url,filepath){
+  const res=await axios.get(url,{responseType:"arraybuffer"});
+  fs.writeFileSync(filepath,res.data);
 }
-
-async function uploadPhoto(filepath, caption) {
-  const form = new FormData();
-  form.append("access_token", PAGE_TOKEN);
-  form.append("published", "false");
-  form.append("caption", caption);
-  form.append("source", fs.createReadStream(filepath));
-  const res = await axios.post(`https://graph.facebook.com/${PAGE_ID}/photos`, form, { headers: form.getHeaders() });
+async function uploadPhoto(filepath,caption){
+  const form=new FormData();
+  form.append("access_token",PAGE_TOKEN);
+  form.append("published","false");
+  form.append("caption",caption);
+  form.append("source",fs.createReadStream(filepath));
+  const res=await axios.post(`https://graph.facebook.com/${PAGE_ID}/photos`,form,{headers:form.getHeaders()});
   return res.data.id;
 }
 
-// ---------- Post to Facebook ----------
-async function postToFacebook(article) {
-  const message = rewriteNews(article);
+// ---------- Post ----------
+async function postToFacebook(article){
+  const message=rewriteNews(article);
   let media_id;
-  if (article.urlToImage) {
-    try {
-      await downloadImage(article.urlToImage, "temp.jpg");
-      media_id = await uploadPhoto("temp.jpg", message);
-    } catch (err) {
-      console.log("Image upload failed, posting text only:", err.message);
+  if(article.urlToImage){
+    try{
+      await downloadImage(article.urlToImage,"temp.jpg");
+      media_id=await uploadPhoto("temp.jpg",message);
+    }catch(err){
+      console.log("Image upload failed, posting text only:",err.message);
     }
   }
 
-  const params = { message, access_token: PAGE_TOKEN };
-  if (media_id) params.attached_media = JSON.stringify([{ media_fbid: media_id }]);
-  if (!media_id) params.link = article.url;
+  const params={message,access_token:PAGE_TOKEN};
+  if(media_id) params.attached_media=JSON.stringify([{media_fbid:media_id}]);
+  if(!media_id) params.link=article.url;
 
-  try {
-    const post = await axios.post(`https://graph.facebook.com/${PAGE_ID}/feed`, null, { params });
-    console.log("Posted:", article.title);
+  try{
+    await axios.post(`https://graph.facebook.com/${PAGE_ID}/feed`,null,{params});
+    console.log("Posted:",article.title);
     savePosted(article.url);
-    const company = detectCompany(article);
-    if (company) saveLastCompany(company);
-  } catch (err) {
-    console.log("Failed to post:", err.response?.data || err.message);
+    const company=detectCompany(article);
+    if(company) saveLastCompany(company);
+  }catch(err){
+    console.log("Failed to post:",err.response?.data||err.message);
   }
 }
 
-// ---------- Fetch Articles ----------
-async function fetchArticles(keywords) {
-  const queryChunks = [];
-  let currentQuery = "";
-  for (const k of keywords) {
-    if ((currentQuery + " OR " + k).length > 500) {
-      queryChunks.push(currentQuery);
-      currentQuery = k;
-    } else {
-      currentQuery += (currentQuery ? " OR " : "") + k;
+// ---------- Main ----------
+async function postNews(){
+  console.log("Fetching AI/Tech news...");
+  try{
+    // Split query to avoid too long errors
+    const queryChunks=[];
+    let currentQuery="";
+    for(const k of KEYWORDS){
+      if((currentQuery+" OR "+k).length>500){
+        queryChunks.push(currentQuery);
+        currentQuery=k;
+      }else{
+        currentQuery+=(currentQuery?" OR ":"")+k;
+      }
     }
-  }
-  if (currentQuery) queryChunks.push(currentQuery);
+    if(currentQuery) queryChunks.push(currentQuery);
 
-  let articles = [];
-  for (const chunk of queryChunks) {
-    const res = await axios.get("https://newsapi.org/v2/everything", {
-      params: { q: chunk, language: "en", sortBy: "publishedAt", pageSize: 20, apiKey: NEWS_KEY }
-    });
-    articles = articles.concat(res.data.articles.filter(a => a.url));
+    let articles=[];
+    for(const chunk of queryChunks){
+      const res=await axios.get("https://newsapi.org/v2/everything",{
+        params:{q:chunk,language:"en",sortBy:"publishedAt",pageSize:20,apiKey:NEWS_KEY}
+      });
+      articles=articles.concat(res.data.articles.filter(a=>a.url && isRelevant(a)));
+    }
+
+    // Remove same company as last
+    const lastCompany=getLastCompany();
+    articles=articles.filter(a=>detectCompany(a)!==lastCompany);
+
+    // Sort by viral score
+    articles.sort((a,b)=>viralScore(b)-viralScore(a));
+
+    const posted=getPosted();
+    const article=articles.find(a=>!posted.includes(a.url));
+
+    if(!article){
+      console.log("No new relevant articles. Trying fallback keywords...");
+      // fallback
+      for(const fb of ["tech news","AI","innovation"]){
+        const res=await axios.get("https://newsapi.org/v2/everything",{
+          params:{q:fb,language:"en",sortBy:"publishedAt",pageSize:10,apiKey:NEWS_KEY}
+        });
+        const fallbackArticles=res.data.articles.filter(a=>a.url && isRelevant(a) && !posted.includes(a.url));
+        if(fallbackArticles.length>0){
+          await postToFacebook(fallbackArticles[0]);
+          return;
+        }
+      }
+      return;
+    }
+
+    await postToFacebook(article);
+
+  }catch(err){
+    console.log("Error fetching or posting news:",err.response?.data||err.message);
   }
-  return articles;
 }
 
-// ---------- Main function ----------
-async function postNews() {
-  console.log("Fetching news...");
-  try {
-    let articles = await fetchArticles(KEYWORDS);
-    const lastCompany = getLastCompany();
-    articles = articles.filter(a => detectCompany(a) !== lastCompany && isRelevant(a));
-    articles.sort((a, b) => viralScore(b) - viralScore(a));
-
-    const posted = getPosted();
-    let article = articles.find(a => !posted.includes(a.url));
-
-    // If no main article found, try trending/fallback
-    if (!article) {
-      console.log("No new relevant articles. Trying trending/fallback keywords...");
-      const fallbackArticles = await fetchArticles(TRENDING_KEYWORDS);
-      article = fallbackArticles.find(a => !posted.includes(a.url));
-    }
-
-    if (article) {
-      await postToFacebook(article);
-    } else {
-      console.log("No suitable articles found after fallback search.");
-    }
-
-  } catch (err) {
-    console.log("Error fetching or posting news:", err.response?.data || err.message);
-  }
-}
-
-// ---------- Schedule 3 posts per day ----------
-cron.schedule("0 12,17,22 * * *", () => postNews());
+// ---------- Schedule 3 posts/day ----------
+cron.schedule("0 12,17,22 * * *",()=>postNews());
 
 // Run immediately
 postNews();
