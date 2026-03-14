@@ -7,8 +7,9 @@ const FormData = require("form-data");
 const PAGE_ID = process.env.PAGE_ID;
 const PAGE_TOKEN = process.env.PAGE_TOKEN;
 const NEWS_KEY = process.env.NEWS_KEY;
+// -----------------------------
 
-// Main keywords for tech relevance
+// Keywords
 const KEYWORDS = [
   "AI","artificial intelligence","machine learning","deep learning",
   "technology","tech",
@@ -25,14 +26,6 @@ const KEYWORDS = [
   "space technology","satellite","SpaceX"
 ];
 
-// Viral keywords to boost engagement
-const VIRAL_KEYWORDS = [
-  "leak", "rumor", "revealed", "breaking", "hack",
-  "secret", "exclusive", "first look", "launch",
-  "update", "upgrade", "new release", "trend", "innovation"
-];
-
-// Blocked keywords to avoid non-tech news
 const BLOCKED_KEYWORDS = [
   "politics","election","government","senate","president",
   "war","military conflict","terrorist","attack",
@@ -43,22 +36,23 @@ const BLOCKED_KEYWORDS = [
   "weather","earthquake","storm","flood"
 ];
 
-// Trusted sources
 const TRUSTED_SOURCES = [
-  "techcrunch","the-verge","wired","ars-technica",
-  "mit-technology-review","engadget","venturebeat","gizmodo"
-];
-
-// Fallback keywords if nothing relevant is found
-const FALLBACK_KEYWORDS = [
-  "technology","innovation","AI","gadgets","startups","future tech"
+  "techcrunch",
+  "the-verge",
+  "wired",
+  "ars-technica",
+  "mit-technology-review",
+  "engadget",
+  "venturebeat",
+  "gizmodo"
 ];
 
 const HASHTAGS = "#AI #TechNews #Gadgets #Innovation #FutureTech";
 
 // ---------- Utilities ----------
 function getPosted(){
-  if(!fs.existsSync("posted.json")) fs.writeFileSync("posted.json","[]");
+  if(!fs.existsSync("posted.json"))
+    fs.writeFileSync("posted.json","[]");
   return JSON.parse(fs.readFileSync("posted.json"));
 }
 
@@ -68,17 +62,6 @@ function savePosted(url){
   fs.writeFileSync("posted.json",JSON.stringify(posted,null,2));
 }
 
-// Save last company posted to prevent repeats
-function getLastCompany(){
-  if(!fs.existsSync("company.json")) fs.writeFileSync("company.json","{}");
-  return JSON.parse(fs.readFileSync("company.json"));
-}
-
-function saveLastCompany(company){
-  fs.writeFileSync("company.json",JSON.stringify({company},null,2));
-}
-
-// Check article relevance
 function isRelevant(article){
   const text = (article.title + " " + (article.description || "")).toLowerCase();
   const keywordMatch = KEYWORDS.some(k => text.includes(k.toLowerCase()));
@@ -87,29 +70,8 @@ function isRelevant(article){
   return keywordMatch && !blockedMatch && trustedSource;
 }
 
-// Detect main company in article title
-function detectCompany(article){
-  const companies = ["Apple","Samsung","Google","Microsoft","Meta","Tesla","Nvidia","Intel","AMD","OpenAI"];
-  const text = (article.title + " " + (article.description || "")).toLowerCase();
-  for(const company of companies){
-    if(text.includes(company.toLowerCase())) return company;
-  }
-  return null;
-}
-
-// ---------- Viral scoring ----------
-function getViralScore(article){
-  const text = (article.title + " " + (article.description || "")).toLowerCase();
-  let score = 0;
-  VIRAL_KEYWORDS.forEach(word=>{
-    if(text.includes(word.toLowerCase())) score += 1;
-  });
-  return score;
-}
-
-// ---------- Hook generator ----------
-function generateHook(article){
-  // Optionally make hook title-based
+// ---------- Hook & Engagement ----------
+function generateHook(){
   const hooks = [
     "🚀 Tech Update:",
     "⚡ Breaking Tech News:",
@@ -117,13 +79,9 @@ function generateHook(article){
     "💡 New Development:",
     "📱 Gadget lovers, check this out!"
   ];
-  // If article has a company, include it
-  const company = detectCompany(article);
-  if(company) return `💼 ${company} News:`;
   return hooks[Math.floor(Math.random()*hooks.length)];
 }
 
-// ---------- Engagement line ----------
 function generateEngagementLine(){
   const lines = [
     "What do you think about this development? 🤔",
@@ -135,7 +93,7 @@ function generateEngagementLine(){
   return lines[Math.floor(Math.random()*lines.length)];
 }
 
-// ---------- Quick facts extractor ----------
+// ---------- Quick facts ----------
 function extractQuickFacts(text){
   const regex = /(\d+(\.\d+)?\s?(GB|GHz|MP|inch|%|mAh|nm|TB|fps)?)/gi;
   const matches = text.match(regex);
@@ -145,15 +103,13 @@ function extractQuickFacts(text){
 
 // ---------- Rewrite news ----------
 function rewriteNews(article){
-  const hook = generateHook(article);
+  const hook = generateHook();
   const engagement = generateEngagementLine();
   const baseSummary = article.description || "";
-
   let extraContext = "";
   if(baseSummary.length < 150){
     extraContext = "In this update, we break down the key points and what it means for tech enthusiasts.";
   }
-
   const quickFacts = extractQuickFacts(article.title + " " + baseSummary);
 
   return `${hook}
@@ -170,13 +126,12 @@ ${article.url}
 ${HASHTAGS}`;
 }
 
-// ---------- Download image ----------
+// ---------- Image functions ----------
 async function downloadImage(url,filepath){
   const res = await axios.get(url,{responseType:"arraybuffer"});
   fs.writeFileSync(filepath,res.data);
 }
 
-// ---------- Upload photo ----------
 async function uploadPhoto(filepath,caption){
   const form = new FormData();
   form.append("access_token",PAGE_TOKEN);
@@ -210,72 +165,70 @@ async function postToFacebook(article){
   if(!media_id) params.link = article.url;
 
   try{
-    const post = await axios.post(`https://graph.facebook.com/${PAGE_ID}/feed`, null, {params});
+    const post = await axios.post(
+      `https://graph.facebook.com/${PAGE_ID}/feed`,
+      null,
+      {params}
+    );
     console.log("Posted:",article.title);
     savePosted(article.url);
-
-    // Save last company to prevent repeats
-    const company = detectCompany(article);
-    if(company) saveLastCompany(company);
-
   }
   catch(err){
     console.log("Failed to post:",err.response?.data || err.message);
   }
 }
 
-// ---------- Main function ----------
-async function postNews(){
-  console.log("Fetching AI/Tech news...");
-  try{
-    // Normal search first
-    let res = await axios.get("https://newsapi.org/v2/everything",{
+// ---------- Handle long queries ----------
+function chunkKeywords(keywords,maxChars=480){
+  const chunks = [];
+  let temp = [];
+  let length = 0;
+  for(const k of keywords){
+    if(length + k.length + 4 > maxChars){
+      chunks.push(temp);
+      temp = [];
+      length = 0;
+    }
+    temp.push(k);
+    length += k.length + 4;
+  }
+  if(temp.length) chunks.push(temp);
+  return chunks;
+}
+
+async function fetchArticles(){
+  const keywordChunks = chunkKeywords(KEYWORDS);
+  let allArticles = [];
+  for(const chunk of keywordChunks){
+    const res = await axios.get("https://newsapi.org/v2/everything",{
       params:{
-        q: KEYWORDS.join(" OR "),
+        q: chunk.join(" OR "),
         language:"en",
         sortBy:"publishedAt",
         pageSize:20,
         apiKey:NEWS_KEY
       }
     });
+    allArticles = allArticles.concat(res.data.articles);
+  }
+  return allArticles;
+}
 
-    let articles = res.data.articles.filter(a => a.url && isRelevant(a));
-
-    // If nothing found, fallback search
-    if(articles.length === 0){
-      console.log("No articles found, using fallback keywords...");
-      res = await axios.get("https://newsapi.org/v2/everything",{
-        params:{
-          q: FALLBACK_KEYWORDS.join(" OR "),
-          language:"en",
-          sortBy:"publishedAt",
-          pageSize:20,
-          apiKey:NEWS_KEY
-        }
-      });
-      articles = res.data.articles.filter(a => a.url && isRelevant(a));
-    }
-
-    // Sort by viral score
-    articles = articles.sort((a,b)=>getViralScore(b)-getViralScore(a));
-
+// ---------- Main function ----------
+async function postNews(){
+  console.log("Fetching AI/Tech news...");
+  try{
+    let articles = (await fetchArticles()).filter(a=>a.url && isRelevant(a));
     const posted = getPosted();
-    const lastCompany = getLastCompany().company;
-
-    // Skip same company as last posted
-    const article = articles.find(a => {
-      const company = detectCompany(a);
-      return !posted.includes(a.url) && company !== lastCompany;
-    });
+    const article = articles.find(a=>!posted.includes(a.url));
 
     if(!article){
       console.log("No new relevant articles to post. Skipping.");
       return;
     }
-
     await postToFacebook(article);
-
-  }catch(err){
+  }
+  catch(err){
     console.log("Error fetching or posting news:",err.response?.data || err.message);
   }
 }
