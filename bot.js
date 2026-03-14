@@ -94,15 +94,25 @@ function generateHookDynamic(article) {
   else hook += title;
   return hook;
 }
-function generateEngagementLine() {
-  const lines = [
-    "What do you think about this development? 🤔",
-    "Could this shape the future of technology?",
-    "Tech is evolving fast — your thoughts?",
-    "Would you use this technology?",
-    "Is this a big step forward for tech?"
-  ];
-  return lines[Math.floor(Math.random()*lines.length)];
+
+function generateEngagementLine(article) {
+  const text = (article.title + " " + (article.description || "")).trim();
+
+  if (/AI|machine learning|ChatGPT|OpenAI/i.test(text)) {
+    return "Do you think AI will change the world soon? 🤔";
+  }
+  if (/tech|innovation|startup/i.test(text)) {
+    return "Could this innovation shape the future? 🚀";
+  }
+  if (/Apple|Samsung|Google|Microsoft|Meta|Tesla/i.test(text)) {
+    const company = detectCompany(article) || "This company";
+    return `${company} just made a move — what’s your take? 📱💻`;
+  }
+  if (/VR|AR|mixed reality|robotics|automation/i.test(text)) {
+    return "Would you use this new technology? 🤖";
+  }
+
+  return "What are your thoughts on this update? 💡";
 }
 
 // ---------- Quick Facts ----------
@@ -117,7 +127,7 @@ function extractQuickFacts(text) {
 function generateHashtags(article){
   const text=(article.title+" "+(article.description||"")).toLowerCase();
   const tags=[];
-  KEYWORDS.forEach(k=>{ if(text.includes(k.toLowerCase())) tags.push(`#${k.replace(/\s+/g,""))}`); });
+  KEYWORDS.forEach(k=>{ if(text.includes(k.toLowerCase())) tags.push(`#${k.replace(/\s+/g,"")}`); });
   if(tags.length===0) return "#TechNews";
   return tags.slice(0,10).join(" ");
 }
@@ -125,7 +135,7 @@ function generateHashtags(article){
 // ---------- Rewrite News ----------
 function rewriteNews(article){
   const hook=generateHookDynamic(article);
-  const engagement=generateEngagementLine();
+  const engagement=generateEngagementLine(article);
   const baseSummary=article.description||"";
   let extraContext="";
   if(baseSummary.length<150) extraContext="In this update, we break down the key points and what it means for tech enthusiasts.";
@@ -226,7 +236,7 @@ async function postNews(){
 
     if(!article){
       console.log("No new relevant articles. Trying fallback keywords...");
-      // fallback
+      // fallback - related tech/AI only
       for(const fb of ["tech news","AI","innovation"]){
         const res=await axios.get("https://newsapi.org/v2/everything",{
           params:{q:fb,language:"en",sortBy:"publishedAt",pageSize:10,apiKey:NEWS_KEY}
