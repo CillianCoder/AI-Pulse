@@ -58,41 +58,42 @@ function saveLastCompany(company) {
   fs.writeFileSync("last_company.json", JSON.stringify({company}));
 }
 
-// ---------- Relevance & Scoring ----------
-function relevanceScore(article) {
+// ---------- Relevance ----------
+function isRelevant(article) {
   const text = (article.title + " " + (article.description||"")).toLowerCase();
-  let score = KEYWORDS.reduce((acc,k)=>text.includes(k.toLowerCase()) ? acc+1 : acc,0);
+  const keywordMatch = KEYWORDS.some(k=>text.includes(k.toLowerCase()));
+  const blockedMatch = BLOCKED_KEYWORDS.some(b=>text.includes(b.toLowerCase()));
+  const trustedSource = TRUSTED_SOURCES.includes(article.source.id);
+  return keywordMatch && !blockedMatch && trustedSource;
+}
+
+// ---------- Viral Score ----------
+function viralScore(article) {
+  const text = (article.title + " " + (article.description||"")).toLowerCase();
+  let score=0;
+  VIRAL_KEYWORDS.forEach(k=>{ if(text.includes(k.toLowerCase())) score+=10; });
   return score;
 }
 
-function viralScore(article) {
-  const text = (article.title + " " + (article.description||"")).toLowerCase();
-  return VIRAL_KEYWORDS.reduce((acc,k)=>text.includes(k.toLowerCase()) ? acc+10 : acc,0);
-}
-
+// ---------- Company Detection ----------
 function detectCompany(article) {
   const text = (article.title + " " + (article.description||"")).toLowerCase();
   return COMPANY_KEYWORDS.find(c=>text.includes(c.toLowerCase()));
 }
 
-function isRelevant(article) {
-  const text = (article.title + " " + (article.description||"")).toLowerCase();
-  const blocked = BLOCKED_KEYWORDS.some(b=>text.includes(b.toLowerCase()));
-  const trusted = TRUSTED_SOURCES.includes(article.source.id);
-  return !blocked && trusted;
-}
-
 // ---------- Dynamic Hook & Engagement ----------
-function generateHook(article) {
+function generateHookDynamic(article) {
   const title = article.title || "";
   const company = detectCompany(article);
-  const keyword = KEYWORDS.find(k=>title.toLowerCase().includes(k.toLowerCase()));
-  if(company) return `🚀 ${company} update: ${title}`;
-  if(keyword) return `⚡ ${keyword} news: ${title}`;
-  return `📰 ${title}`;
+  const techTerm = KEYWORDS.find(k=>title.toLowerCase().includes(k.toLowerCase()));
+  let hook = "🚀 ";
+  if(company) hook += `${company} update: ${title}`;
+  else if(techTerm) hook += `${techTerm} news: ${title}`;
+  else hook += title;
+  return hook;
 }
 
-function generateEngagement(article) {
+function generateEngagementDynamic(article) {
   const text = (article.title + " " + (article.description||"")).toLowerCase();
   const questions = [
     `What are your thoughts on this?`,
@@ -105,6 +106,7 @@ function generateEngagement(article) {
   return questions[Math.min(viralCount, questions.length-1)];
 }
 
+// ---------- Quick Facts ----------
 function extractQuickFacts(text) {
   const regex=/(\d+(\.\d+)?\s?(GB|GHz|MP|inch|%|mAh|nm|TB|fps)?)/gi;
   const matches=text.match(regex);
@@ -112,21 +114,25 @@ function extractQuickFacts(text) {
   return `Quick fact: ${matches.join(", ")}\n\n`;
 }
 
+// ---------- Dynamic Hashtags ----------
 function generateHashtags(article){
   const text=(article.title+" "+(article.description||"")).toLowerCase();
   const tags=[];
   KEYWORDS.forEach(k=>{ if(text.includes(k.toLowerCase())) tags.push(`#${k.replace(/\s+/g,"")}`); });
-  return tags.length?tags.slice(0,10).join(" "):"#TechNews";
+  if(tags.length===0) return "#TechNews";
+  return tags.slice(0,10).join(" ");
 }
 
+// ---------- Rewrite News ----------
 function rewriteNews(article){
-  const hook=generateHook(article);
-  const engagement=generateEngagement(article);
+  const hook=generateHookDynamic(article);
+  const engagement=generateEngagementDynamic(article);
   const baseSummary=article.description||"";
   let extraContext="";
   if(baseSummary.length<150) extraContext="In this update, we break down the key points and what it means for tech enthusiasts.";
   const quickFacts=extractQuickFacts(article.title+" "+baseSummary);
   const hashtags=generateHashtags(article);
+
   return `${hook}
 
 ${article.title}
@@ -141,7 +147,7 @@ ${article.url}
 ${hashtags}`;
 }
 
-// ---------- Axios ----------
+// ---------- Axios with timeout ----------
 const axiosWithTimeout = (url, params, timeout=10000) => {
   return axios.get(url, {params, timeout}).catch(err=>{
     console.log("Axios request failed or timed out:", err.message);
@@ -172,7 +178,9 @@ async function postToFacebook(article){
     try{
       await downloadImage(article.urlToImage,"temp.jpg");
       media_id=await uploadPhoto("temp.jpg",message);
-    }catch(err){ console.log("Image upload failed, posting text only:",err.message);}
+    }catch(err){
+      console.log("Image upload failed, posting text only:",err.message);
+    }
   }
 
   const params={message,access_token:PAGE_TOKEN};
@@ -185,61 +193,89 @@ async function postToFacebook(article){
     savePosted(article.url);
     const company=detectCompany(article);
     if(company) saveLastCompany(company);
-  }catch(err){ console.log("Failed to post:",err.response?.data||err.message);}
+  }catch(err){
+    console.log("Failed to post:",err.response?.data||err.message);
+  }
 }
 
 // ---------- Main ----------
 async function postNews(){
   console.log("Fetching AI/Tech news...");
 
-  const posted=getPosted();
-  const lastCompany=getLastCompany();
-
-  const fetchArticles=async (keywords, limit=20)=>{
+  try{
+    const posted=getPosted();
+    const lastCompany=getLastCompany();
     let articles=[];
+
+    // 1️⃣ Split query to avoid too long errors
+    const queryChunks=[];
     let currentQuery="";
-    const chunks=[];
-    for(const k of keywords){
-      if((currentQuery+" OR "+k).length>500){ chunks.push(currentQuery); currentQuery=k;}
-      else currentQuery+=(currentQuery?" OR ":"")+k;
+    for(const k of KEYWORDS){
+      if((currentQuery+" OR "+k).length>500){
+        queryChunks.push(currentQuery);
+        currentQuery=k;
+      }else{
+        currentQuery+=(currentQuery?" OR ":"")+k;
+      }
     }
-    if(currentQuery) chunks.push(currentQuery);
+    if(currentQuery) queryChunks.push(currentQuery);
 
-    for(const chunk of chunks){
+    // 2️⃣ Fetch articles by chunk
+    for(const chunk of queryChunks){
       const res=await axiosWithTimeout("https://newsapi.org/v2/everything",{
-        q:chunk,language:"en",sortBy:"publishedAt",pageSize:limit,apiKey:NEWS_KEY
+        q:chunk,language:"en",sortBy:"publishedAt",pageSize:20,apiKey:NEWS_KEY
       });
-      if(res.data.articles?.length) articles=articles.concat(res.data.articles.filter(a=>a.url && isRelevant(a)));
+      articles = articles.concat(res.data.articles || []);
     }
-    return articles;
-  };
 
-  // 1️⃣ Try main keywords
-  let articles = await fetchArticles(KEYWORDS);
+    // 3️⃣ Remove blocked/last company
+    articles = articles.filter(a=>!posted.includes(a.url) && detectCompany(a)!==lastCompany && isRelevant(a));
 
-  // Remove same company as last
-  articles = articles.filter(a=>detectCompany(a)!==lastCompany);
+    // 4️⃣ Sort by viral score
+    articles.sort((a,b)=>viralScore(b)-viralScore(a));
 
-  // If no articles, try fallback keywords
-  if(!articles.length){
-    console.log("No new relevant articles. Trying fallback keywords...");
-    const fallback = ["AI","tech news","innovation"];
-    articles = await fetchArticles(fallback,10);
+    // 5️⃣ Fallback keyword search if empty
+    const fallbackKeywords = ["tech news","AI","innovation"];
+    if(!articles.length){
+      console.log("No new relevant articles. Trying fallback keywords...");
+      for(const fb of fallbackKeywords){
+        const res = await axiosWithTimeout("https://newsapi.org/v2/everything",{
+          q:fb,language:"en",sortBy:"publishedAt",pageSize:10,apiKey:NEWS_KEY
+        });
+        const fallbackArticles=res.data.articles || [];
+        const newFallback=fallbackArticles.filter(a=>!posted.includes(a.url) && isRelevant(a));
+        if(newFallback.length>0){
+          articles = newFallback;
+          break;
+        }
+      }
+    }
+
+    // 6️⃣ Final fallback: any recent tech headlines
+    if(!articles.length){
+      console.log("No fallback articles found, fetching top headlines...");
+      const res = await axiosWithTimeout("https://newsapi.org/v2/top-headlines",{
+        country:"us",category:"technology",pageSize:5,apiKey:NEWS_KEY
+      });
+      articles = res.data.articles || [];
+    }
+
+    // 7️⃣ Pick article
+    const article = articles.find(a=>!posted.includes(a.url)) || articles[0];
+    if(!article){
+      console.log("No articles at all. Skipping this run.");
+      return;
+    }
+
+    // 8️⃣ Post
+    await postToFacebook(article);
+
+  }catch(err){
+    console.log("Error fetching or posting news:",err.response?.data||err.message);
   }
-
-  // 2️⃣ Always select the best article
-  if(!articles.length){
-    console.log("No articles found, skipping this run.");
-    return;
-  }
-
-  articles.sort((a,b)=>{
-    return (relevanceScore(b)+viralScore(b)) - (relevanceScore(a)+viralScore(a));
-  });
-
-  const article=articles.find(a=>!posted.includes(a.url))||articles[0];
-  await postToFacebook(article);
 }
 
-// ---------- Run ----------
-postNews().then(()=>console.log("Bot finished successfully")).catch(err=>console.log("Bot error:",err));
+// Run immediately
+postNews()
+  .then(()=>console.log("Bot finished successfully."))
+  .catch(err=>console.error("Bot error:",err));
