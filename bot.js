@@ -1,5 +1,4 @@
 const axios = require("axios");
-const cron = require("node-cron");
 const fs = require("fs");
 const FormData = require("form-data");
 
@@ -267,9 +266,16 @@ async function postNews(){
     console.log("Error fetching or posting news:",err.response?.data||err.message);
   }
 }
-
-// ---------- Schedule ----------
-cron.schedule("0 12,17,22 * * *",()=>postNews());
+// replace instead of shedule
+postNews()
+  .then(() => {
+    console.log("Bot finished successfully.");
+    process.exit(0);
+  })
+  .catch(err => {
+    console.error("Bot error:", err);
+    process.exit(1);
+  });
 
 // Run immediately
 postNews();
